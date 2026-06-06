@@ -1,0 +1,15 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <AssemblyName>BarManager</AssemblyName>
+    <RootNamespace>BarManager</RootNamespace>
+    <Version>0.1.40.0</Version>
+    <Description>Generalized FFXIV venue bar manager with audit, configurable gamba drink, jackpots, buyouts, and reports.</Description>
+    <IsPackable>false</IsPackable>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+</Project>
