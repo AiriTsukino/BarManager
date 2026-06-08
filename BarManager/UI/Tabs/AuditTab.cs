@@ -59,7 +59,7 @@ internal sealed class AuditTab
                     foreach (var drink in enabledDrinks)
                     {
                         var sale = GetSale(audit, drink.Id);
-                        var billable = ReportService.BillableDrinkCount(audit, sale);
+                        var billable = ReportService.BillableDrinkCount(audit, sale, drink);
                         ImGui.PushID(drink.Id.ToString());
                         ImGui.TableNextRow();
 
@@ -226,6 +226,14 @@ internal sealed class AuditTab
 
         foreach (var sale in audit.DrinkSales)
         {
+            var drink = venue.Drinks.FirstOrDefault(d => d.Id == sale.DrinkId);
+            if (drink?.IsGambaDrink == true)
+            {
+                // Gamba drinks are paid roll purchases and should still count as drink sales during buyouts.
+                sale.CountBeforeBuyout = sale.Count;
+                continue;
+            }
+
             var coveredThisPeriod = Math.Max(0, sale.Count - sale.CountBeforeBuyout);
             sale.CountCoveredByBuyout += coveredThisPeriod;
             sale.CountBeforeBuyout = sale.Count;

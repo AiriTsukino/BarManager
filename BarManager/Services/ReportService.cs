@@ -24,8 +24,9 @@ internal static class ReportService
             var sale = audit.DrinkSales.FirstOrDefault(s => s.DrinkId == drink.Id);
             var count = sale?.Count ?? 0;
             var covered = sale?.CountCoveredByBuyout ?? 0;
-            var billable = BillableDrinkCount(audit, sale);
-            sb.AppendLine($"  {drink.Name}: {count:N0} sold, {covered:N0} covered by buyout, {billable:N0} billable x {drink.Price:N0} = {(billable * drink.Price):N0}");
+            var billable = BillableDrinkCount(audit, sale, drink);
+            var coveredText = drink.IsGambaDrink ? "0" : covered.ToString("N0");
+            sb.AppendLine($"  {drink.Name}: {count:N0} sold, {coveredText} covered by buyout, {billable:N0} billable x {drink.Price:N0} = {(billable * drink.Price):N0}");
         }
         sb.AppendLine($"Drink sales: {DrinkSales(venue, audit):N0}");
         sb.AppendLine($"Buyout sales: {BuyoutSales(venue, audit):N0}");
@@ -92,14 +93,19 @@ internal static class ReportService
         {
             var sale = audit.DrinkSales.FirstOrDefault(s => s.DrinkId == drink.Id);
             if (sale is null) continue;
-            total += BillableDrinkCount(audit, sale) * drink.Price;
+            total += BillableDrinkCount(audit, sale, drink) * drink.Price;
         }
         return total;
     }
 
-    public static int BillableDrinkCount(BarAuditState audit, DrinkSale? sale)
+    public static int BillableDrinkCount(BarAuditState audit, DrinkSale? sale, DrinkDefinition? drink = null)
     {
         if (sale is null) return 0;
+
+        // Gamba drinks are paid roll purchases, so they should remain billable even during a bar buyout.
+        if (drink?.IsGambaDrink == true)
+            return Math.Max(0, sale.Count);
+
         var activeCovered = audit.BarBuyoutActive ? Math.Max(0, sale.Count - sale.CountBeforeBuyout) : 0;
         return Math.Max(0, sale.Count - sale.CountCoveredByBuyout - activeCovered);
     }
