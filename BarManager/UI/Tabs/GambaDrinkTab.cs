@@ -26,6 +26,17 @@ internal sealed class GambaDrinkTab : IDisposable
 
     private readonly record struct ParsedPartyRoll(string Name, string World, int Roll, int? RangeMin, int? RangeMax);
 
+    private static readonly string[] KnownWorlds =
+    {
+        "Adamantoise", "Aegis", "Alexander", "Alpha", "Anima", "Asura", "Atomos", "Bahamut", "Balmung", "Behemoth", "Belias", "Brynhildr",
+        "Cactuar", "Carbuncle", "Cerberus", "Chocobo", "Coeurl", "Diabolos", "Durandal", "Excalibur", "Exodus", "Faerie", "Famfrit",
+        "Fenrir", "Garuda", "Gilgamesh", "Goblin", "Gungnir", "Hades", "Halicarnassus", "Hyperion", "Ifrit", "Ixion", "Jenova",
+        "Kujata", "Lamia", "Leviathan", "Louisoix", "Maduin", "Malboro", "Mandragora", "Marilith", "Masamune", "Mateus", "Midgardsormr",
+        "Moogle", "Odin", "Omega", "Pandaemonium", "Phantom", "Phoenix", "Ragnarok", "Raiden", "Ravana", "Ridill", "Sagittarius",
+        "Sargatanas", "Sephirot", "Seraph", "Shinryu", "Shiva", "Siren", "Sophia", "Spriggan", "Tiamat", "Titan", "Tonberry",
+        "Twintania", "Typhon", "Ultima", "Ultros", "Unicorn", "Valefor", "Yojimbo", "Zalera", "Zeromus", "Zodiark"
+    };
+
     private readonly Configuration config;
     private readonly PersistenceService persistence;
     private readonly ChatCommandService chatCommands = new();
@@ -759,10 +770,7 @@ internal sealed class GambaDrinkTab : IDisposable
         // Dice lines can arrive through different Dalamud chat kinds depending on
         // whether they were sent with /dice, /dice party, cross-world party, or the
         // local chat filters. Do not hard-require XivChatType.Party here; instead,
-        // only continue if the message is an actual Random! dice line and the
-        // sender matches the active customer or local bartender below. This fixes
-        // real-customer rolls that show in party chat visually but are not tagged
-        // as XivChatType.Party by the chat event.
+        // parse only actual Random! dice lines and then validate the sender.
         if (!body.Contains("Random!", StringComparison.OrdinalIgnoreCase)
             && !sender.Contains("Random!", StringComparison.OrdinalIgnoreCase))
             return;
@@ -958,26 +966,23 @@ internal sealed class GambaDrinkTab : IDisposable
         if (string.IsNullOrWhiteSpace(expected) || string.IsNullOrWhiteSpace(actual))
             return false;
 
-        // Party dice names can be delivered with a leading job/class icon, and
-        // cross-world party names can arrive as "First LastWorld" or
-        // "First Last World" without the usual @ separator. When we know the
-        // expected world, strip that suffix before comparing the character name.
         if (!string.IsNullOrWhiteSpace(expectedHomeWorld))
         {
             actual = StripTrailingWorld(actual, expectedHomeWorld);
             actualHomeWorld = StripTrailingWorld(actualHomeWorld, expectedHomeWorld);
         }
+        else
+        {
+            var split = SplitKnownWorldFromLabel(actualName);
+            if (!string.IsNullOrWhiteSpace(split.World))
+            {
+                actual = NormalizeCharacterPart(split.Name);
+                actualHomeWorld = NormalizeCharacterPart(split.World);
+            }
+        }
 
         if (!actual.Equals(expected, StringComparison.OrdinalIgnoreCase))
-        {
-            // If no world was entered for the customer, still allow a party label
-            // that has the world appended directly after the character name. This
-            // keeps manually typed customer names working for cross-world players.
-            if (!string.IsNullOrWhiteSpace(expectedHomeWorld)
-                || actual.Length <= expected.Length
-                || !actual.StartsWith(expected, StringComparison.OrdinalIgnoreCase))
-                return false;
-        }
+            return false;
 
         return string.IsNullOrWhiteSpace(expectedHomeWorld)
             || string.IsNullOrWhiteSpace(actualHomeWorld)
@@ -994,9 +999,6 @@ internal sealed class GambaDrinkTab : IDisposable
         if (compactValue.Length <= compactWorld.Length || !compactValue.EndsWith(compactWorld, StringComparison.OrdinalIgnoreCase))
             return value;
 
-        // Preserve the normal display spacing from the character name when the
-        // world was appended directly after the surname, such as
-        // "Vallon HartsbloodMaduin". Also handles "Vallon Hartsblood Maduin".
         var suffixStart = value.Length - world.Length;
         if (suffixStart >= 0 && value.EndsWith(world, StringComparison.OrdinalIgnoreCase))
             return value[..suffixStart].Trim();
@@ -1013,43 +1015,53 @@ internal sealed class GambaDrinkTab : IDisposable
     {
         parsed = default;
 
-        if (TryMatchPartyRandom(ParenthesizedPartyRandomRegex.Match(body), sender, out parsed))
-            return true;
-
-        if (TryMatchPartyRandom(PartyRandomRegex.Match(body), sender, out parsed))
-            return true;
-
-        if (TryMatchPartyRandom(NamedRandomRegex.Match(body), sender, out parsed))
-            return true;
-
-        var combined = string.IsNullOrWhiteSpace(sender) ? body : $"{sender}: {body}";
-        if (TryMatchPartyRandom(CombinedRandomRegex.Match(combined), sender, out parsed))
-            return true;
-
-        if (TryMatchPartyRandom(NamedRandomRegex.Match(combined), sender, out parsed))
-            return true;
-
-        // Fallback for Dalamud chat payloads where the dice sender is supplied in
-        // message.Sender and the message body is only "Random! ...". Also handles
-        // payloads with hidden icons or other text before Random!.
-        if (!TryMatchPartyRandom(RandomRollRegex.Match(body), sender, out parsed))
+        var cleanSender = CleanChatText(sender);
+        var cleanBody = CleanChatText(body);
+        if (!cleanBody.Contains("Random!", StringComparison.OrdinalIgnoreCase)
+            && !cleanSender.Contains("Random!", StringComparison.OrdinalIgnoreCase))
             return false;
 
-        var bodyName = LeadingParenthesizedNameRegex.Match(body);
-        if (bodyName.Success)
-            parsed = parsed with { Name = CleanName(bodyName.Groups["name"].Value) };
+        // Try the received body first, then the sender/body combinations. Different
+        // client languages, chat filters, and payload shapes can place the character
+        // label in either field, with or without parentheses, colons, or a world suffix.
+        var candidates = new List<(string Text, string FallbackSender)>
+        {
+            (cleanBody, cleanSender),
+            ($"{cleanSender} {cleanBody}".Trim(), cleanSender),
+            ($"{cleanSender}: {cleanBody}".Trim(), cleanSender)
+        };
 
-        return true;
+        foreach (var (text, fallback) in candidates)
+        {
+            if (TryParseRandomCandidate(text, fallback, out parsed))
+                return true;
+        }
+
+        return false;
     }
 
-    private static bool TryMatchPartyRandom(Match match, string fallbackSender, out ParsedPartyRoll parsed)
+    private static bool TryParseRandomCandidate(string text, string fallbackSender, out ParsedPartyRoll parsed)
     {
         parsed = default;
+        if (string.IsNullOrWhiteSpace(text))
+            return false;
+
+        var match = Regex.Match(
+            text,
+            @"^(?<label>.*?)\s*Random!\s*(?:\((?<rangeMin>\d+)\s*-\s*(?<rangeMax>\d+)\)\s*)?(?<roll>\d{1,4})\b",
+            RegexOptions.IgnoreCase);
+
         if (!match.Success)
             return false;
 
-        var name = match.Groups["name"].Success ? CleanName(match.Groups["name"].Value) : CleanName(fallbackSender);
-        var world = match.Groups["world"].Success ? CleanName(match.Groups["world"].Value) : string.Empty;
+        var label = match.Groups["label"].Value;
+        if (string.IsNullOrWhiteSpace(label))
+            label = fallbackSender;
+
+        var (name, world) = SplitNameAndWorld(label);
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
         if (!int.TryParse(match.Groups["roll"].Value, out var roll))
             return false;
 
@@ -1066,6 +1078,75 @@ internal sealed class GambaDrinkTab : IDisposable
 
         parsed = new ParsedPartyRoll(name, world, roll, rangeMin, rangeMax);
         return true;
+    }
+
+    private static (string Name, string World) SplitNameAndWorld(string label)
+    {
+        var value = CleanChatText(label).Trim();
+        value = value.Trim('(', ')', '[', ']', '{', '}', ':').Trim();
+        value = Regex.Replace(value, @"\s+", " ").Trim();
+
+        if (string.IsNullOrWhiteSpace(value))
+            return (string.Empty, string.Empty);
+
+        var atIndex = value.IndexOf('@');
+        if (atIndex < 0)
+            atIndex = value.IndexOf('＠');
+
+        if (atIndex > 0 && atIndex < value.Length - 1)
+            return (CleanName(value[..atIndex]), CleanName(value[(atIndex + 1)..]));
+
+        var split = SplitKnownWorldFromLabel(value);
+        return (CleanName(split.Name), CleanName(split.World));
+    }
+
+    private static (string Name, string World) SplitKnownWorldFromLabel(string label)
+    {
+        var value = CleanChatText(label).Trim().Trim('(', ')', '[', ']', '{', '}', ':').Trim();
+        value = Regex.Replace(value, @"\s+", " ").Trim();
+        if (string.IsNullOrWhiteSpace(value))
+            return (string.Empty, string.Empty);
+
+        foreach (var world in KnownWorlds.OrderByDescending(w => w.Length))
+        {
+            if (value.EndsWith($" {world}", StringComparison.OrdinalIgnoreCase))
+                return (value[..^(world.Length + 1)].Trim(), world);
+
+            var compactValue = RemoveSpaces(value);
+            var compactWorld = RemoveSpaces(world);
+            if (compactValue.Length > compactWorld.Length && compactValue.EndsWith(compactWorld, StringComparison.OrdinalIgnoreCase))
+            {
+                var nameCompact = compactValue[..^compactWorld.Length];
+                if (!string.IsNullOrWhiteSpace(nameCompact))
+                    return (RestoreNameSpacing(value, world), world);
+            }
+        }
+
+        return (value, string.Empty);
+    }
+
+    private static string RestoreNameSpacing(string value, string world)
+    {
+        if (value.EndsWith(world, StringComparison.OrdinalIgnoreCase))
+            return value[..^world.Length].Trim();
+
+        var compactWorld = RemoveSpaces(world);
+        var compactValue = RemoveSpaces(value);
+        if (compactValue.Length <= compactWorld.Length)
+            return value;
+
+        var compactNameLength = compactValue.Length - compactWorld.Length;
+        var kept = 0;
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (!char.IsWhiteSpace(value[i]))
+                kept++;
+
+            if (kept >= compactNameLength)
+                return value[..(i + 1)].Trim();
+        }
+
+        return value;
     }
 
     private static string ValidateDiceRange(ParsedPartyRoll parsed, GambaSettings gamba, string displayName)
@@ -1127,19 +1208,30 @@ internal sealed class GambaDrinkTab : IDisposable
         _ => BarManagerTheme.Muted,
     };
 
-    private static string StripChatNoise(string text) => string.Join(' ', text.Replace('＠', '@').Split(' ', StringSplitOptions.RemoveEmptyEntries)).Trim();
+    private static string StripChatNoise(string text) => CleanChatText(text);
+
+    private static string CleanChatText(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return string.Empty;
+
+        var cleaned = text.Replace('＠', '@');
+        cleaned = Regex.Replace(cleaned, @"[\uE000-\uF8FF]", string.Empty);
+        cleaned = Regex.Replace(cleaned, @"[\u0000-\u001F\u007F]", string.Empty);
+        cleaned = string.Join(' ', cleaned.Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        return cleaned.Trim();
+    }
 
     private static string CleanName(string text)
     {
-        var cleaned = StripChatNoise(text).Trim().Trim(':').Trim();
+        var cleaned = CleanChatText(text).Trim().Trim(':').Trim();
         if (cleaned.StartsWith("(") && cleaned.EndsWith(")") && cleaned.Length > 2)
             cleaned = cleaned[1..^1].Trim();
 
-        // FFXIV party dice names may start with private-use job/class icons like
-        //  or . Remove those marker glyphs anywhere in the parsed label before
-        // comparing names, then trim any remaining leading punctuation.
-        cleaned = Regex.Replace(cleaned, @"[\uE000-\uF8FF]", string.Empty);
         cleaned = Regex.Replace(cleaned, @"^[^\p{L}\p{N}]+", string.Empty);
+        cleaned = Regex.Replace(cleaned, @"[^\p{L}\p{N}\s'\-]", string.Empty);
+        cleaned = Regex.Replace(cleaned, @"\s+", " ");
         return cleaned.Trim();
     }
+
 }
