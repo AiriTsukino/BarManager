@@ -263,3 +263,8 @@ dotnet build -c Release
 - Supports generic dice labels such as `First Last World Random! (1-999) 590`, `First Last Random! 590`, `First Last@World: Random! (1-999) 590`, and parenthesized party labels.
 - Strips private-use job/class icons before name matching and splits known FFXIV world names from either spaced or appended cross-world labels.
 - Removed specific player-name examples from comments and documentation.
+
+### v0.1.43
+- Added SeString payload validation for party dice tracking so typed chat text that only says `Random! 729` is ignored.
+- Real dice-looking text must now include the game's dice/autotranslate/icon payload structure in the message body before BarManager will resolve it as a roll.
+- Kept existing player/world/range validation after the payload check.

@@ -778,6 +778,12 @@ internal sealed class GambaDrinkTab : IDisposable
         if (!TryParsePartyRandom(sender, body, out var parsed))
             return;
 
+        if (!LooksLikeRealDiceMessage(message))
+        {
+            status = $"Ignored dice-looking chat text because it did not contain the game's dice/autotranslate payloads. Payloads: {GetMessagePayloadSummary(message)}";
+            return;
+        }
+
         var isCurrentCustomer = MatchesCurrentCustomer(parsed.Name, parsed.World);
         var isLocalPlayer = MatchesLocalPlayer(parsed.Name, parsed.World);
 
@@ -840,6 +846,61 @@ internal sealed class GambaDrinkTab : IDisposable
         var normalBartenderSettings = new GambaSettings { MinRoll = gamba.MinRoll, MaxRoll = Math.Max(gamba.MinRoll + 1, gamba.BartenderRollMax) };
         var normalBartenderRejection = ValidateDiceRange(parsed, normalBartenderSettings, parsed.Name);
         TryConsumeBartenderBonusRoll(parsed.Name, parsed.World, parsed.Roll, normalBartenderRejection, gamba);
+    }
+
+
+    private static bool LooksLikeRealDiceMessage(IHandleableChatMessage message)
+    {
+        // Do not trust visible chat text alone. Players can type text such as
+        // "Random! 729" manually, but real game dice messages contain SeString
+        // payloads/icons/autotranslate markers in the message body that plain
+        // typed text does not contain.
+        try
+        {
+            var sawPayload = false;
+            foreach (var payload in message.Message.Payloads)
+            {
+                sawPayload = true;
+                var typeName = payload.GetType().Name;
+                if (typeName.Equals("TextPayload", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                // The exact icon IDs can differ by client/API details, so keep the
+                // gate structural: real dice messages have non-text payloads in the
+                // message body, while fake typed "Random!" lines are only text.
+                if (typeName.Contains("Icon", StringComparison.OrdinalIgnoreCase)
+                    || typeName.Contains("AutoTranslate", StringComparison.OrdinalIgnoreCase)
+                    || typeName.Contains("Bitmap", StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            // If Dalamud ever gives an empty payload list for the message body,
+            // treat it as unsafe rather than accepting spoofable plain text.
+            return sawPayload && false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+
+    private static string GetMessagePayloadSummary(IHandleableChatMessage message)
+    {
+        try
+        {
+            var types = message.Message.Payloads
+                .Select(p => p.GetType().Name)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Take(6)
+                .ToArray();
+
+            return types.Length == 0 ? "none" : string.Join(", ", types);
+        }
+        catch
+        {
+            return "unavailable";
+        }
     }
 
 
