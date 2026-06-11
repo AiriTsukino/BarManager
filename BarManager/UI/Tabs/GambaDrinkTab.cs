@@ -82,6 +82,7 @@ internal sealed class GambaDrinkTab : IDisposable
         var venue = config.ActiveVenue;
         var audit = config.CurrentAudit;
         var gamba = venue.Gamba;
+        SyncRollsRemainingFromSession();
 
         if (ImGui.BeginChild("##GambaScroll", new Vector2(0, 0), false, ImGuiWindowFlags.AlwaysVerticalScrollbar))
         {
@@ -151,7 +152,7 @@ internal sealed class GambaDrinkTab : IDisposable
                     {
                         foreach (Match m in Regex.Matches(pasteRolls, @"\d+"))
                         {
-                            if (int.TryParse(m.Value, out var roll) && current is not null && rollsRemaining > 0)
+                            if (int.TryParse(m.Value, out var roll) && current is not null && CurrentRollsRemaining() > 0)
                                 ResolveRoll(roll, "paste");
                         }
                         pasteRolls = string.Empty;
@@ -227,6 +228,7 @@ internal sealed class GambaDrinkTab : IDisposable
     private void ResolveRoll(int roll, string source)
     {
         if (current is null) return;
+        SyncRollsRemainingFromSession();
         var venue = config.ActiveVenue;
         var gamba = venue.Gamba;
         if (roll < gamba.MinRoll || roll > gamba.MaxRoll)
@@ -241,7 +243,6 @@ internal sealed class GambaDrinkTab : IDisposable
         }
 
         var jackpotBefore = config.CurrentAudit.JackpotCurrent;
-        rollsRemaining--;
         var result = GambaEngine.Resolve(roll, jackpotBefore, gamba);
         var basePayout = result.Payout;
         var payout = basePayout;
@@ -293,8 +294,7 @@ internal sealed class GambaDrinkTab : IDisposable
         else if (contribution > 0)
             config.CurrentAudit.JackpotCurrent += contribution;
 
-        if (result.FreeRoll)
-            rollsRemaining++;
+        SyncRollsRemainingFromSession();
 
         UpdateBonusStateAfterRoll(gamba, isWin);
 
@@ -321,6 +321,31 @@ internal sealed class GambaDrinkTab : IDisposable
             else
                 EndSession();
         }
+    }
+
+
+    private int CurrentRollsRemaining()
+    {
+        if (current is null)
+            return 0;
+
+        var baseAllowed = Math.Max(0, current.RollsAllowed);
+        var bonusRolls = current.Rolls.Count(r => r.FreeRoll);
+        var resolvedRolls = current.Rolls.Count;
+        return Math.Max(0, baseAllowed + bonusRolls - resolvedRolls);
+    }
+
+    private void SyncRollsRemainingFromSession()
+    {
+        if (current is null)
+            return;
+
+        // Keep the UI/auto-end counter derived from session history instead of
+        // relying only on a mutable field. This prevents a desync where the live
+        // counter can reach 0 even though the saved session still shows fewer
+        // resolved rolls than were originally allowed. Free-roll awards are
+        // included as extra available rolls.
+        rollsRemaining = CurrentRollsRemaining();
     }
 
     private static int ApplyBonusMultiplier(int payout, float multiplier)
@@ -572,6 +597,7 @@ internal sealed class GambaDrinkTab : IDisposable
 
     private void AnnounceRollsLeftIfNeeded(GambaSettings gamba)
     {
+        SyncRollsRemainingFromSession();
         if (current is null || !gamba.AnnounceRollsLeft)
             return;
 
@@ -804,6 +830,7 @@ internal sealed class GambaDrinkTab : IDisposable
         // self-testing when the local player rolls the venue gamba dice range.
         if (isCurrentCustomer)
         {
+            SyncRollsRemainingFromSession();
             if (rollsRemaining <= 0)
                 return;
 
