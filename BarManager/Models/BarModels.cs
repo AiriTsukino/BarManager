@@ -55,6 +55,7 @@ public sealed class GambaSettings
     public bool AddRollPricePercentToJackpot { get; set; }
     public float JackpotContributionPercent { get; set; }
     public bool AutoEndOnJackpotWin { get; set; } = false;
+    public bool ShowRollPurchaseGuidanceAfterJackpotWin { get; set; } = false;
     public bool JackpotShoutoutEnabled { get; set; } = true;
     public string JackpotShoutoutChannel { get; set; } = "yell";
     public string JackpotShoutoutMessage { get; set; } = "Congratulations {player}! They just won the jackpot for {payout} gil!";

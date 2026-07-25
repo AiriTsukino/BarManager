@@ -733,6 +733,12 @@ internal sealed class GambaDrinkTab : IDisposable
     private void QueueSessionPayoutAnnouncement(GambaSessionRecord session, VenueProfile venue)
     {
         var payout = Math.Max(0, session.TotalPayout);
+        if (session.JackpotWon && !venue.Gamba.ShowRollPurchaseGuidanceAfterJackpotWin)
+        {
+            TryQueueAnnouncement($"{session.CustomerName}, congratulations! You won the jackpot with a session payout of {UiHelpers.Gil(payout)}!");
+            return;
+        }
+
         var rollPrice = CalculateGambaRollPrice(venue);
         var totalBuyIn = CalculateSessionBuyIn(session, venue, rollPrice);
         var extraRolls = rollPrice > 0 ? payout / rollPrice : 0;

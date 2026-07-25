@@ -270,6 +270,10 @@ internal sealed class SettingsWindow : Window
             if (ImGui.Checkbox("End session automatically on jackpot win", ref autoEndJackpot)) { gamba.AutoEndOnJackpotWin = autoEndJackpot; persistence.SaveNow(); }
             UiHelpers.TooltipOnHover("Off by default. When enabled, a jackpot win immediately tells the customer to stop rolling, sets remaining rolls to 0, saves the session, and prevents unused remaining rolls from being played.");
 
+            var showJackpotPurchaseGuidance = gamba.ShowRollPurchaseGuidanceAfterJackpotWin;
+            if (ImGui.Checkbox("Show roll purchase guidance after jackpot wins", ref showJackpotPurchaseGuidance)) { gamba.ShowRollPurchaseGuidanceAfterJackpotWin = showJackpotPurchaseGuidance; persistence.SaveNow(); }
+            UiHelpers.TooltipOnHover("Off by default. When off, a jackpot session ends with only a congratulatory jackpot payout message. Enable this to also show how many rolls the winnings could purchase and any remaining cashout amount. Non-jackpot session messages are not affected.");
+
             var jackpotShoutout = gamba.JackpotShoutoutEnabled;
             if (ImGui.Checkbox("Announce jackpot winner", ref jackpotShoutout)) { gamba.JackpotShoutoutEnabled = jackpotShoutout; persistence.SaveNow(); }
             UiHelpers.TooltipOnHover("When enabled, BarManager sends a venue-wide jackpot shoutout using the selected chat channel when the customer wins the jackpot.");
