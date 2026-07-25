@@ -7,7 +7,7 @@
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <AssemblyName>BarManager</AssemblyName>
     <RootNamespace>BarManager</RootNamespace>
-    <Version>0.1.46.0</Version>
+    <Version>0.1.47.0</Version>
     <Authors>Airi Tsukino</Authors>
     <Description>Generalized FFXIV venue bar manager with audit, configurable gamba drink, jackpots, buyouts, and reports.</Description>
     <IsPackable>false</IsPackable>

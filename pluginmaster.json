@@ -3,7 +3,7 @@
     "Author": "Airi Tsukino",
     "Name": "BarManager",
     "InternalName": "BarManager",
-    "AssemblyVersion": "0.1.46.0",
+    "AssemblyVersion": "0.1.47.0",
     "Description": "Tracks venue bar sales, tips, buyouts, configurable gamba drink sessions, payouts, jackpots, and nightly reports. Designed for multiple venues with venue-neutral branding.",
     "Punchline": "Generalized bar audit and gamba drink manager for FFXIV venues.",
     "RepoUrl": "https://github.com/AiriTsukino/BarManager",
